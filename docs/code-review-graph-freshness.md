@@ -7,13 +7,19 @@ index rather than re-parsing the working tree on every call.
 
 That is what makes the tools fast. It is also a silent failure mode: when the
 index falls behind the working tree, the tools keep answering **confidently
-from stale data**. Observed symptoms:
+from stale data** — code added since the last build simply is not in the graph.
+Observed on this repo, whose index was ~950 nodes / a month of commits behind:
 
-- `detect_changes` reports newly-added tests as **untested "test gaps"**, because
-  the `TESTED_BY` edges predate the new test files.
-- `semantic_search_nodes` returns **nothing** for files added since the last
-  build (and silently falls back to keyword mode when no embeddings exist).
-- `get_impact_radius` computes blast radius from an outdated call graph.
+- `semantic_search_nodes` returned **nothing** for a file that post-dated the
+  build (and silently fell back to keyword mode when no embeddings existed);
+  after a rebuild the same query returned it.
+- `detect_changes` and `get_impact_radius` compute change impact and coverage
+  from that outdated call graph, so files and call edges added since the build
+  are absent — new code is unfindable and its blast radius is under-reported.
+
+(Note: a *fresh* index can still report a genuinely untested function as a "test
+gap" — that is a `TESTED_BY` inference limit, not staleness. Freshness only
+governs whether the graph reflects the current tree, not how it links tests.)
 
 Nothing in the MCP/CLI workflow surfaced this, so an operator had no signal that
 the index was stale before trusting its output.

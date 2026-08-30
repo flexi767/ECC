@@ -53,7 +53,7 @@ function buildWarning(report) {
       `[GraphFreshness] code-review-graph index is STALE (~${days}d). ${report.reason}`
     );
     lines.push(
-      '  detect_changes / semantic_search / get_impact_radius may be wrong: newly-added tests can show as gaps and new files are unfindable.'
+      '  detect_changes / semantic_search / get_impact_radius may be wrong: code added since the last build is absent, so new files are unfindable and their impact/coverage is under-reported.'
     );
   }
   lines.push(`  ${report.remediation}`);

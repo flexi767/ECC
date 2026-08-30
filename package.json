@@ -420,6 +420,7 @@
     "harness:adapters": "node scripts/harness-adapter-compliance.js",
     "harness:audit": "node scripts/harness-audit.js",
     "observability:ready": "node scripts/observability-readiness.js",
+    "graph:freshness": "node scripts/graph-freshness.js",
     "operator:dashboard": "node scripts/operator-readiness-dashboard.js",
     "preview-pack:smoke": "node scripts/preview-pack-smoke.js",
     "release:approval-gate": "node scripts/release-approval-gate.js",

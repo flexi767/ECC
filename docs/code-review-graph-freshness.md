@@ -59,6 +59,27 @@ session-start hook that only warns.
 
 Otherwise the repo-local `<repo>/.code-review-graph/graph.db` is used.
 
+## Automatic warning at session start
+
+Running the CLI by hand only helps if you remember to. The `SessionStart` hook
+`scripts/hooks/session-start-graph-freshness.js` (id `session-start:graph-freshness`,
+registered in `hooks/hooks.json`, profiles `standard,strict`) runs the same
+check once per session and surfaces a heads-up when the index is stale or
+missing — so a fresh session rebuilds before trusting graph output:
+
+```text
+[GraphFreshness] code-review-graph index is STALE (~39d). Graph index is older than the 14-day freshness window.
+  detect_changes / semantic_search / get_impact_radius may be wrong: newly-added tests can show as gaps and new files are unfindable.
+  Rebuild the index: call build_or_update_graph_tool (code-review-graph MCP), ...
+```
+
+It stays **silent** for the common case — a repo with no `.code-review-graph/`
+directory at all (i.e. one that does not use code-review-graph). It only speaks
+up when the graph is actually in use and has gone stale or lost its `graph.db`.
+Like every ECC hook it fails open (prints nothing, never blocks) and can be
+turned off with `ECC_DISABLED_HOOKS=session-start:graph-freshness` or by running
+the `minimal` hook profile.
+
 ## How staleness is decided
 
 The classifier (`scripts/lib/graph-freshness.js`) uses two independent signals:

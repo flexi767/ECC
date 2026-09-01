@@ -117,6 +117,10 @@ function runTests() {
       const mtime = getGraphMtimeMs(filePath);
       assert.ok(Number.isFinite(mtime) && mtime > 0);
       assert.strictEqual(getGraphMtimeMs(path.join(dir, 'missing.db')), null);
+      // A zero-byte (aborted/truncated) build is not a usable index.
+      const emptyPath = path.join(dir, 'empty.db');
+      fs.writeFileSync(emptyPath, '');
+      assert.strictEqual(getGraphMtimeMs(emptyPath), null);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -148,6 +152,19 @@ function runTests() {
       const report = checkGraphFreshness(dir, { sourceTimeMs: null, nowMs: Date.now() });
       assert.strictEqual(report.status, 'missing');
       assert.ok(report.dbPath.endsWith(path.join('.code-review-graph', 'graph.db')));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  })) passed++; else failed++;
+
+  if (test('checkGraphFreshness treats a zero-byte graph.db as missing, not a false fresh', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-freshness-'));
+    try {
+      fs.mkdirSync(path.join(dir, '.code-review-graph'));
+      fs.writeFileSync(path.join(dir, '.code-review-graph', 'graph.db'), '');
+      const report = checkGraphFreshness(dir, { sourceTimeMs: null, nowMs: Date.now() });
+      assert.strictEqual(report.status, 'missing');
+      assert.ok(report.remediation);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

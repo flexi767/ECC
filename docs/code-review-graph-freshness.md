@@ -98,8 +98,10 @@ The classifier (`scripts/lib/graph-freshness.js`) uses two independent signals:
    index. If the index is older than the freshness window (14 days by default),
    it is flagged `STALE` regardless.
 
-`MISSING` is reported when no `graph.db` exists for the repo — the cue to run an
-initial build.
+`MISSING` is reported when no `graph.db` exists for the repo — or when it exists
+but is zero bytes (an aborted or truncated build; a real SQLite database is
+never empty). Either way the cue is the same: run a build. This avoids a false
+`FRESH` on a broken index whose mtime happens to be recent.
 
 ## Recovery
 

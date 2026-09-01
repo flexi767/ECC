@@ -27,14 +27,14 @@ function test(name, fn) {
 
 // Build a throwaway repo dir; optionally create the graph dir and db, and
 // optionally backdate the db mtime to force staleness.
-function makeRepo({ withGraphDir = false, withDb = false, dbAgeDays = 0 } = {}) {
+function makeRepo({ withGraphDir = false, withDb = false, emptyDb = false, dbAgeDays = 0 } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-graph-fresh-'));
   if (withGraphDir) {
     const graphDir = path.join(dir, '.code-review-graph');
     fs.mkdirSync(graphDir);
     if (withDb) {
       const dbPath = path.join(graphDir, 'graph.db');
-      fs.writeFileSync(dbPath, 'x');
+      fs.writeFileSync(dbPath, emptyDb ? '' : 'x');
       if (dbAgeDays > 0) {
         const when = (Date.now() - dbAgeDays * DAY_MS) / 1000;
         fs.utimesSync(dbPath, when, when);
@@ -116,6 +116,16 @@ function runTests() {
 
   if (test('run warns MISSING when the graph dir exists but the db is gone', () => {
     const dir = makeRepo({ withGraphDir: true, withDb: false });
+    try {
+      const out = run('', { cwd: dir });
+      assert.match(out, /missing/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  })) passed++; else failed++;
+
+  if (test('run warns MISSING when graph.db exists but is zero bytes (aborted build)', () => {
+    const dir = makeRepo({ withGraphDir: true, withDb: true, emptyDb: true });
     try {
       const out = run('', { cwd: dir });
       assert.match(out, /missing/);

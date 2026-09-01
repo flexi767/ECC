@@ -104,11 +104,20 @@ function resolveGraphDbPath(repoRoot, env = process.env) {
   return path.join(dataDir, 'graph.db');
 }
 
-/** Index build time as the db file mtime in ms, or null if the file is absent. */
+/**
+ * Index build time as the db file mtime in ms, or null if the file is absent.
+ *
+ * A zero-byte file is an aborted or truncated build, not a usable index (a real
+ * SQLite database is never empty). Treat it as absent so the report is MISSING
+ * ("rebuild") rather than a false FRESH that hides a broken index.
+ */
 function getGraphMtimeMs(dbPath) {
   try {
     const stat = fs.statSync(dbPath);
-    return stat.isFile() ? stat.mtimeMs : null;
+    if (!stat.isFile() || stat.size === 0) {
+      return null;
+    }
+    return stat.mtimeMs;
   } catch (_error) {
     return null;
   }

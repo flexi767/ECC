@@ -16,6 +16,7 @@
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
@@ -92,15 +93,61 @@ function classifyFreshness({
  * `CRG_DATA_DIR` override and an `ECC_GRAPH_DB_PATH` full-path override;
  * otherwise defaults to the repo-local `.code-review-graph/graph.db`.
  */
+/** Path to the code-review-graph repo registry (maps repo path -> data_dir). */
+function registryPath(env = process.env) {
+  if (env && env.CRG_REGISTRY_PATH) {
+    return path.resolve(env.CRG_REGISTRY_PATH);
+  }
+  return path.join(os.homedir(), '.code-review-graph', 'registry.json');
+}
+
+/**
+ * The registered `data_dir` for a repo, or null. The code-review-graph registry
+ * can decouple a repo's index location from `<repo>/.code-review-graph` (e.g. a
+ * worktree pointed at another checkout's data_dir). Read-only and fail-safe: any
+ * missing/malformed registry yields null so resolution falls back to the default.
+ */
+function registryDataDir(repoRoot, env = process.env) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(registryPath(env), 'utf8'));
+    const repos = Array.isArray(parsed && parsed.repos) ? parsed.repos : [];
+    const target = path.resolve(repoRoot);
+    for (const entry of repos) {
+      if (
+        entry &&
+        typeof entry.path === 'string' &&
+        path.resolve(entry.path) === target &&
+        typeof entry.data_dir === 'string' &&
+        entry.data_dir.trim()
+      ) {
+        return path.resolve(entry.data_dir);
+      }
+    }
+    return null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+/**
+ * Resolve the graph db path for a repo. Precedence:
+ *   1. ECC_GRAPH_DB_PATH  — explicit full path override.
+ *   2. CRG_DATA_DIR       — explicit data-dir override.
+ *   3. registry data_dir  — the code-review-graph registry entry for this repo.
+ *   4. <repo>/.code-review-graph — the default repo-local location.
+ * Consulting the registry (3) avoids a false MISSING when a repo's index lives
+ * outside its own tree.
+ */
 function resolveGraphDbPath(repoRoot, env = process.env) {
   if (env && env.ECC_GRAPH_DB_PATH) {
     return path.resolve(env.ECC_GRAPH_DB_PATH);
   }
   const root = repoRoot ? path.resolve(repoRoot) : process.cwd();
-  const dataDir =
-    env && env.CRG_DATA_DIR
-      ? path.resolve(env.CRG_DATA_DIR)
-      : path.join(root, '.code-review-graph');
+  if (env && env.CRG_DATA_DIR) {
+    return path.join(path.resolve(env.CRG_DATA_DIR), 'graph.db');
+  }
+  const registered = registryDataDir(root, env);
+  const dataDir = registered || path.join(root, '.code-review-graph');
   return path.join(dataDir, 'graph.db');
 }
 
@@ -192,6 +239,7 @@ module.exports = {
   DEFAULT_STALE_AFTER_MS,
   REMEDIATION,
   classifyFreshness,
+  registryDataDir,
   resolveGraphDbPath,
   getGraphMtimeMs,
   getRepoHeadTimeMs,

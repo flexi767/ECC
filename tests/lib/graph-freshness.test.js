@@ -9,11 +9,16 @@ const { spawnSync } = require('child_process');
 const {
   DAY_MS,
   classifyFreshness,
+  registryDataDir,
   resolveGraphDbPath,
   getGraphMtimeMs,
   getRepoHeadTimeMs,
   checkGraphFreshness
 } = require('../../scripts/lib/graph-freshness');
+
+// A registry path guaranteed not to exist, so resolution falls back to default
+// without reading the real ~/.code-review-graph/registry.json.
+const NO_REGISTRY = path.join(os.tmpdir(), 'crg-no-registry-xyz-does-not-exist.json');
 
 // Minimal, isolated git repo in a temp dir (no network, no shared config).
 function makeGitRepo() {
@@ -121,7 +126,7 @@ function runTests() {
   })) passed++; else failed++;
 
   if (test('resolveGraphDbPath defaults to repo-local .code-review-graph/graph.db', () => {
-    const dbPath = resolveGraphDbPath('/tmp/some-repo', {});
+    const dbPath = resolveGraphDbPath('/tmp/some-repo', { CRG_REGISTRY_PATH: NO_REGISTRY });
     assert.strictEqual(
       dbPath,
       path.join('/tmp/some-repo', '.code-review-graph', 'graph.db')
@@ -140,6 +145,65 @@ function runTests() {
       CRG_DATA_DIR: '/data/crg'
     });
     assert.strictEqual(dbPath, path.join(path.resolve('/data/crg'), 'graph.db'));
+  })) passed++; else failed++;
+
+  if (test('resolveGraphDbPath uses the registry data_dir for a registered repo', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-freshness-reg-'));
+    try {
+      const regPath = path.join(dir, 'registry.json');
+      fs.writeFileSync(regPath, JSON.stringify({
+        repos: [
+          { path: '/some/other', data_dir: '/elsewhere/.code-review-graph' },
+          { path: '/repo/a', data_dir: '/data/a/.code-review-graph' }
+        ]
+      }));
+      const dbPath = resolveGraphDbPath('/repo/a', { CRG_REGISTRY_PATH: regPath });
+      assert.strictEqual(dbPath, path.join('/data/a/.code-review-graph', 'graph.db'));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  })) passed++; else failed++;
+
+  if (test('resolveGraphDbPath falls back to repo-local when a registry entry has no data_dir', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-freshness-reg-'));
+    try {
+      const regPath = path.join(dir, 'registry.json');
+      fs.writeFileSync(regPath, JSON.stringify({ repos: [{ path: '/repo/b', alias: 'b' }] }));
+      const dbPath = resolveGraphDbPath('/repo/b', { CRG_REGISTRY_PATH: regPath });
+      assert.strictEqual(dbPath, path.join('/repo/b', '.code-review-graph', 'graph.db'));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  })) passed++; else failed++;
+
+  if (test('resolveGraphDbPath: explicit env overrides win over a registry entry', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-freshness-reg-'));
+    try {
+      const regPath = path.join(dir, 'registry.json');
+      fs.writeFileSync(regPath, JSON.stringify({ repos: [{ path: '/repo/c', data_dir: '/reg/c' }] }));
+      assert.strictEqual(
+        resolveGraphDbPath('/repo/c', { CRG_REGISTRY_PATH: regPath, CRG_DATA_DIR: '/env/c' }),
+        path.join(path.resolve('/env/c'), 'graph.db')
+      );
+      assert.strictEqual(
+        resolveGraphDbPath('/repo/c', { CRG_REGISTRY_PATH: regPath, ECC_GRAPH_DB_PATH: '/env/c/graph.db' }),
+        path.resolve('/env/c/graph.db')
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  })) passed++; else failed++;
+
+  if (test('registryDataDir returns null for a missing or malformed registry', () => {
+    assert.strictEqual(registryDataDir('/repo/a', { CRG_REGISTRY_PATH: NO_REGISTRY }), null);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-freshness-reg-'));
+    try {
+      const regPath = path.join(dir, 'registry.json');
+      fs.writeFileSync(regPath, 'not json {');
+      assert.strictEqual(registryDataDir('/repo/a', { CRG_REGISTRY_PATH: regPath }), null);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   })) passed++; else failed++;
 
   if (test('getGraphMtimeMs returns mtime for a real file and null when absent', () => {

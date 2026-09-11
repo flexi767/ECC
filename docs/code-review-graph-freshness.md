@@ -57,13 +57,21 @@ code-review-graph index: STALE
 Without `--strict` the CLI always exits `0`, so it is safe to drop into a
 session-start hook that only warns.
 
-### Environment overrides
+### Where the index is looked up
 
-- `ECC_GRAPH_DB_PATH` — full path to the index database (highest precedence).
-- `CRG_DATA_DIR` — the code-review-graph data directory; the index is expected at
-  `<CRG_DATA_DIR>/graph.db`.
+Resolution precedence for the `graph.db`:
 
-Otherwise the repo-local `<repo>/.code-review-graph/graph.db` is used.
+1. `ECC_GRAPH_DB_PATH` — full path to the index database (highest precedence).
+2. `CRG_DATA_DIR` — the code-review-graph data directory; the index is expected
+   at `<CRG_DATA_DIR>/graph.db`.
+3. **Registry** — the code-review-graph registry
+   (`~/.code-review-graph/registry.json`, override with `CRG_REGISTRY_PATH`) can
+   map a repo to a `data_dir` outside its own tree — e.g. a worktree pointed at
+   another checkout's index. If this repo has such an entry, its `data_dir` is
+   used. This avoids a false `MISSING` when the index does not live under the
+   repo. Reading the registry is read-only and fail-safe (a missing or malformed
+   file falls through to the default).
+4. Otherwise the repo-local `<repo>/.code-review-graph/graph.db` is used.
 
 ## Automatic warning at session start
 

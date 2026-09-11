@@ -4,14 +4,47 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const {
   DAY_MS,
   classifyFreshness,
   resolveGraphDbPath,
   getGraphMtimeMs,
+  getRepoHeadTimeMs,
   checkGraphFreshness
 } = require('../../scripts/lib/graph-freshness');
+
+// Minimal, isolated git repo in a temp dir (no network, no shared config).
+function makeGitRepo() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-freshness-git-'));
+  const git = (...args) =>
+    spawnSync('git', ['-C', dir, ...args], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_CONFIG_SYSTEM: '/dev/null',
+        GIT_AUTHOR_NAME: 't',
+        GIT_AUTHOR_EMAIL: 't@t',
+        GIT_COMMITTER_NAME: 't',
+        GIT_COMMITTER_EMAIL: 't@t'
+      }
+    });
+  git('init', '-q');
+  fs.writeFileSync(path.join(dir, 'f.txt'), 'x');
+  git('add', 'f.txt');
+  git('commit', '-q', '-m', 'init');
+  return { dir, git };
+}
+
+function gitAvailable() {
+  try {
+    return spawnSync('git', ['--version'], { encoding: 'utf8' }).status === 0;
+  } catch (_error) {
+    return false;
+  }
+}
 
 function test(name, fn) {
   try {
@@ -169,6 +202,46 @@ function runTests() {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   })) passed++; else failed++;
+
+  // Real-git coverage for the high-confidence "source newer than index" signal.
+  // The rest of the suite injects sourceTimeMs; this exercises the actual
+  // getRepoHeadTimeMs success path end-to-end.
+  if (gitAvailable()) {
+    if (test('getRepoHeadTimeMs returns HEAD commit time for a real repo', () => {
+      const { dir } = makeGitRepo();
+      try {
+        const headMs = getRepoHeadTimeMs(dir);
+        assert.ok(Number.isFinite(headMs) && headMs > 0);
+        // Commit was just made; its time is within a generous window of now.
+        assert.ok(Math.abs(Date.now() - headMs) < 10 * 60 * 1000);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    })) passed++; else failed++;
+
+    if (test('checkGraphFreshness flags STALE when a real commit post-dates the index', () => {
+      const { dir } = makeGitRepo();
+      try {
+        // Build a graph.db whose mtime predates HEAD by ~1 day.
+        const graphDir = path.join(dir, '.code-review-graph');
+        fs.mkdirSync(graphDir);
+        const dbPath = path.join(graphDir, 'graph.db');
+        fs.writeFileSync(dbPath, 'x');
+        const headMs = getRepoHeadTimeMs(dir);
+        const when = (headMs - DAY_MS) / 1000;
+        fs.utimesSync(dbPath, when, when);
+
+        // No injected sourceTimeMs: this uses the real getRepoHeadTimeMs path.
+        const report = checkGraphFreshness(dir, { nowMs: headMs });
+        assert.strictEqual(report.status, 'stale');
+        assert.match(report.reason, /newer than the graph index/);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    })) passed++; else failed++;
+  } else {
+    console.log('  - (skipped git-backed tests: git not available)');
+  }
 
   console.log(`\nResults: Passed: ${passed}, Failed: ${failed}`);
   process.exit(failed > 0 ? 1 : 0);

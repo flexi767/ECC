@@ -113,3 +113,25 @@ Rebuild the index so the review tools reflect the current tree:
 
 The `graph.db` is machine-local and git-ignored (via the nested
 `.code-review-graph/.gitignore`); it is never committed.
+
+## Interpreting results — avoid false absence
+
+Freshness is necessary but not sufficient. Two failure modes produce
+confident-looking *absence* that is not real; treat both as guardrails when
+acting on graph output:
+
+- **A zero-result or lexical-only semantic query is not proof of absence.**
+  `semantic_search_nodes` silently falls back to keyword mode when the index has
+  no embeddings (`embeddings_count: 0`), so a natural-language, sentence-style
+  query can return nothing for code that is present. Before concluding a symbol
+  is missing, retry with an exact lexical term (or `git grep`); do not infer
+  absence from one sentence-style query.
+- **`FRESH` does not mean semantic search is enabled.** The freshness check only
+  asserts the graph reflects the current tree. Vector search additionally
+  requires embeddings — check `list_graph_stats_tool` → `embeddings_count`.
+  A `FRESH` index with `0` embeddings still answers `semantic_search_nodes` in
+  keyword mode.
+
+And, from the operator side: run the freshness / graph tools only when the
+host-wide heavy slot is clear, and keep read-only checks narrow so they do not
+contend with an active build or test run.
